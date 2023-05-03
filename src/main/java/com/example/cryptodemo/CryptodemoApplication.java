@@ -1,6 +1,7 @@
 package com.example.cryptodemo;
 
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -10,6 +11,7 @@ import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -88,7 +90,7 @@ class SymmetricEncryptionDemo {
 
   public void symmetricEncrypt()
       throws NoSuchAlgorithmException, InvalidKeyException, IllegalBlockSizeException,
-      BadPaddingException, NoSuchPaddingException {
+      BadPaddingException, NoSuchPaddingException, InvalidAlgorithmParameterException {
     var generator = KeyGenerator.getInstance("AES");
     generator.init(192);
     var key = generator.generateKey();
@@ -96,12 +98,18 @@ class SymmetricEncryptionDemo {
     var input = "Sheesh".repeat(16).getBytes();
     log.info("Input: " + Utils.decodeBytes(input));
 
-    var cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-    cipher.init(Cipher.ENCRYPT_MODE, key);
+    var cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+    var secureRandom = SecureRandom.getInstance("SHA1PRNG");
+    var random = new byte[16];
+    secureRandom.nextBytes(random);
+    var ivSpec = new IvParameterSpec(random);
+    log.info("ivSpec: " + Utils.convertBytes(random));
+
+    cipher.init(Cipher.ENCRYPT_MODE, key, ivSpec);
     var encryptedOutput = cipher.doFinal(input);
     log.info("Encrypted Output: " + Utils.convertBytes(encryptedOutput));
 
-    cipher.init(Cipher.DECRYPT_MODE, key);
+    cipher.init(Cipher.DECRYPT_MODE, key, ivSpec);
     var decryptedOutput = cipher.doFinal(encryptedOutput);
     log.info("Decrypted Output: " + Utils.decodeBytes(decryptedOutput));
   }
