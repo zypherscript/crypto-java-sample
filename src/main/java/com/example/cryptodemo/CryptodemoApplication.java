@@ -3,6 +3,7 @@ package com.example.cryptodemo;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -29,7 +30,8 @@ public class CryptodemoApplication {
 
   @Bean
   CommandLineRunner runner(HashingDemo hashingDemo,
-      SymmetricEncryptionDemo symmetricEncryptionDemo) {
+      SymmetricEncryptionDemo symmetricEncryptionDemo,
+      AsymmetricEncryptionDemo asymmetricEncryptionDemo) {
     return args -> {
       var random = new SecureRandom();
       var salt = new byte[16];
@@ -41,6 +43,7 @@ public class CryptodemoApplication {
       hashingDemo.hashText("sheeeeeeeeeeeeeesh", salt); //fixed length
 
       symmetricEncryptionDemo.symmetricEncrypt();
+      asymmetricEncryptionDemo.asymmetricEncrypt();
     };
   }
 }
@@ -110,6 +113,32 @@ class SymmetricEncryptionDemo {
     log.info("Encrypted Output: " + Utils.convertBytes(encryptedOutput));
 
     cipher.init(Cipher.DECRYPT_MODE, key, ivSpec);
+    var decryptedOutput = cipher.doFinal(encryptedOutput);
+    log.info("Decrypted Output: " + Utils.decodeBytes(decryptedOutput));
+  }
+}
+
+@Component
+@Slf4j
+class AsymmetricEncryptionDemo {
+
+  public void asymmetricEncrypt()
+      throws NoSuchAlgorithmException, InvalidKeyException, IllegalBlockSizeException,
+      BadPaddingException, NoSuchPaddingException {
+    //don't use Asymmetric encryption to encrypt large blocks of data
+    var kpGen = KeyPairGenerator.getInstance("RSA");
+    kpGen.initialize(1024);
+    var keyPair = kpGen.generateKeyPair();
+
+    var input = "Sheesh".repeat(6).getBytes();
+    log.info("Input: " + Utils.decodeBytes(input));
+
+    var cipher = Cipher.getInstance("RSA");
+    cipher.init(Cipher.ENCRYPT_MODE, keyPair.getPrivate());
+    var encryptedOutput = cipher.doFinal(input);
+    log.info("Encrypted Output: " + Utils.convertBytes(encryptedOutput));
+
+    cipher.init(Cipher.DECRYPT_MODE, keyPair.getPublic());
     var decryptedOutput = cipher.doFinal(encryptedOutput);
     log.info("Decrypted Output: " + Utils.decodeBytes(decryptedOutput));
   }
