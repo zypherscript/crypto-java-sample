@@ -7,6 +7,8 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.Signature;
+import java.security.SignatureException;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -31,7 +33,8 @@ public class CryptodemoApplication {
   @Bean
   CommandLineRunner runner(HashingDemo hashingDemo,
       SymmetricEncryptionDemo symmetricEncryptionDemo,
-      AsymmetricEncryptionDemo asymmetricEncryptionDemo) {
+      AsymmetricEncryptionDemo asymmetricEncryptionDemo,
+      DigitalSignatureWithAsymmetricEncryptionDemo digitalSignatureWithAsymmetricEncryptionDemo) {
     return args -> {
       var random = new SecureRandom();
       var salt = new byte[16];
@@ -44,6 +47,7 @@ public class CryptodemoApplication {
 
       symmetricEncryptionDemo.symmetricEncrypt();
       asymmetricEncryptionDemo.asymmetricEncrypt();
+      digitalSignatureWithAsymmetricEncryptionDemo.digitalSignatureWithAsymmetricEncrypt();
     };
   }
 }
@@ -141,5 +145,33 @@ class AsymmetricEncryptionDemo {
     cipher.init(Cipher.DECRYPT_MODE, keyPair.getPublic());
     var decryptedOutput = cipher.doFinal(encryptedOutput);
     log.info("Decrypted Output: " + Utils.decodeBytes(decryptedOutput));
+  }
+}
+
+@Component
+@Slf4j
+class DigitalSignatureWithAsymmetricEncryptionDemo {
+
+  public void digitalSignatureWithAsymmetricEncrypt()
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+    var kpGen = KeyPairGenerator.getInstance("RSA");
+    kpGen.initialize(1024);
+    var keyPair = kpGen.generateKeyPair();
+
+    var input = "Sheesh".repeat(6).getBytes();
+    log.info("Input: " + Utils.decodeBytes(input));
+
+    var signatureAlgorithm = Signature.getInstance("SHA256WithRSA");
+    signatureAlgorithm.initSign(keyPair.getPrivate());
+    signatureAlgorithm.update(input);
+    var signature = signatureAlgorithm.sign();
+    log.info("Signature: " + Utils.convertBytes(signature));
+
+    var verificationAlgorithm = Signature.getInstance("SHA256WithRSA");
+    verificationAlgorithm.initVerify(keyPair.getPublic());
+    verificationAlgorithm.update(input);
+
+    var matches = verificationAlgorithm.verify(signature);
+    log.info("Signature matches: " + matches);
   }
 }
