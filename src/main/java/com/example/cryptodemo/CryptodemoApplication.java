@@ -1,14 +1,28 @@
 package com.example.cryptodemo;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -17,6 +31,21 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.X509v3CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
+import org.bouncycastle.crypto.util.PrivateKeyFactory;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.DefaultDigestAlgorithmIdentifierFinder;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.bc.BcContentSignerBuilder;
+import org.bouncycastle.operator.bc.BcRSAContentSignerBuilder;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -34,7 +63,8 @@ public class CryptodemoApplication {
   CommandLineRunner runner(HashingDemo hashingDemo,
       SymmetricEncryptionDemo symmetricEncryptionDemo,
       AsymmetricEncryptionDemo asymmetricEncryptionDemo,
-      DigitalSignatureWithAsymmetricEncryptionDemo digitalSignatureWithAsymmetricEncryptionDemo) {
+      DigitalSignatureWithAsymmetricEncryptionDemo digitalSignatureWithAsymmetricEncryptionDemo,
+      KeyStoreGeneratorDemo keyStoreGeneratorDemo) {
     return args -> {
       var random = new SecureRandom();
       var salt = new byte[16];
@@ -48,6 +78,8 @@ public class CryptodemoApplication {
       symmetricEncryptionDemo.symmetricEncrypt();
       asymmetricEncryptionDemo.asymmetricEncrypt();
       digitalSignatureWithAsymmetricEncryptionDemo.digitalSignatureWithAsymmetricEncrypt();
+
+      keyStoreGeneratorDemo.createKeyStore();
     };
   }
 }
@@ -173,5 +205,80 @@ class DigitalSignatureWithAsymmetricEncryptionDemo {
 
     var matches = verificationAlgorithm.verify(signature);
     log.info("Signature matches: " + matches);
+  }
+}
+
+@Component
+@Slf4j
+class KeyStoreGeneratorDemo {
+
+  public void createKeyStore()
+      throws GeneralSecurityException, IOException, OperatorCreationException {
+    var path = Path.of("myStore.pkcs12");
+    if (Files.exists(path)) {
+      Files.delete(path);
+    }
+
+    // Create a new PKCS12 KeyStore instance & Initialize the empty keystore with null parameters
+    var keyStore = KeyStore.getInstance("PKCS12");
+    keyStore.load(null, null);
+
+    KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+    kpg.initialize(2048);
+    var kp = kpg.generateKeyPair();
+    var pvt = kp.getPrivate();
+
+    // Generate the root X509 certificate using the generated key pair
+    var x509Certificate = generateRootCert(kp);
+    keyStore.setCertificateEntry("myRootCertificate", x509Certificate);
+    // Create a certificate chain array containing only the root certificate
+    Certificate[] chain = {x509Certificate};
+
+    keyStore.setKeyEntry("myPrivateKey", pvt, "password".toCharArray(), chain);
+    keyStore.store(new FileOutputStream("myStore.pkcs12"), "password".toCharArray());
+
+    //testing
+    var enums = keyStore.aliases();
+    log.info("aliases:");
+    enums.asIterator().forEachRemaining(System.out::println);
+
+    var key = keyStore.getKey("myPrivateKey", "password".toCharArray());
+    log.info(key.toString());
+
+    Certificate certificate = keyStore.getCertificate("myRootCertificate");
+    log.info(certificate.toString());
+  }
+
+  private X509Certificate generateRootCert(KeyPair pair)
+      throws IOException, OperatorCreationException, CertificateException {
+    // Create a calendar instance and set the expiry date of the certificate to one year from now
+    var expiry = Calendar.getInstance();
+    expiry.add(Calendar.DAY_OF_YEAR, 365);
+
+    var algorithmIdentifier = new AlgorithmIdentifier(
+        PKCSObjectIdentifiers.sha256WithRSAEncryption);
+    var sigAlgId = new AlgorithmIdentifier(algorithmIdentifier.getAlgorithm(), DERNull.INSTANCE);
+
+    final AlgorithmIdentifier digAlgId = new DefaultDigestAlgorithmIdentifierFinder().find(
+        sigAlgId);
+
+    final BcContentSignerBuilder signerBuilder = new BcRSAContentSignerBuilder(sigAlgId, digAlgId);
+    final AsymmetricKeyParameter keyPrivate = PrivateKeyFactory.createKey(
+        pair.getPrivate().getEncoded());
+    final ContentSigner signer = signerBuilder.build(keyPrivate);
+
+    var x509v3CertificateBuilder = new X509v3CertificateBuilder(
+        new X500Name("CN=Root Certificate"),
+        BigInteger.ONE,
+        new Date(),
+        expiry.getTime(),
+        Locale.ENGLISH,
+        new X500Name("CN=Root Certificate"),
+        SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded())
+    );
+
+    final X509CertificateHolder x509CertificateHolder = x509v3CertificateBuilder.build(signer);
+    return new JcaX509CertificateConverter()
+        .getCertificate(x509CertificateHolder);
   }
 }
